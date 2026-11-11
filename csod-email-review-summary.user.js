@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
-// @version      1.21
+// @version      1.28
 // @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
 // @match        https://*.csod.com/*Email*.aspx*
@@ -389,6 +389,70 @@
     return tmp.innerHTML;
   }
 
+  /* ---------- Resizable original Cornerstone message editor ---------- */
+  function makeOriginalMessageEditorResizable() {
+    const rad = byId('_radeditorCntrl');
+    if (rad) {
+      // Telerik controls visibility of its WYSIWYG iframe and HTML textarea.
+      // Do not style either mode directly. Add our own drag handle to the
+      // outer RadEditor and resize it explicitly so mode switching still works.
+      if (rad.getAttribute('data-er-resizable') === '1') return;
+      rad.setAttribute('data-er-resizable', '1');
+      rad.style.position = rad.style.position || 'relative';
+      rad.style.minWidth = '320px';
+      rad.style.minHeight = '160px';
+      rad.style.maxWidth = '100%';
+      rad.style.boxSizing = 'border-box';
+
+      const grip = document.createElement('div');
+      grip.setAttribute('data-er-editor-grip', '1');
+      grip.title = 'Drag to resize the message editor';
+      grip.style.cssText = 'position:absolute;right:1px;bottom:1px;width:16px;height:16px;cursor:nwse-resize;z-index:2147483000;background:linear-gradient(135deg,transparent 0 45%,#8a8a8a 46% 54%,transparent 55% 65%,#8a8a8a 66% 74%,transparent 75%);';
+      rad.appendChild(grip);
+
+      grip.addEventListener('mousedown', ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        const r = rad.getBoundingClientRect();
+        const sx = ev.clientX, sy = ev.clientY, sw = r.width, sh = r.height;
+        const maxW = Math.max(320, rad.parentElement ? rad.parentElement.getBoundingClientRect().width : window.innerWidth);
+        const move = e => {
+          const w = Math.max(320, Math.min(maxW, sw + e.clientX - sx));
+          const h = Math.max(160, sh + e.clientY - sy);
+          rad.style.width = w + 'px';
+          rad.style.height = h + 'px';
+          // Ask Telerik to lay out the currently active content area, if its API is available.
+          try {
+            const inst = W.$find && W.$find(rad.id);
+            if (inst && typeof inst.setSize === 'function') inst.setSize(w, h);
+            else if (inst && typeof inst.repaint === 'function') inst.repaint();
+          } catch (x) { /* CSS sizing still applies */ }
+        };
+        const up = () => {
+          document.removeEventListener('mousemove', move, true);
+          document.removeEventListener('mouseup', up, true);
+        };
+        document.addEventListener('mousemove', move, true);
+        document.addEventListener('mouseup', up, true);
+      });
+      return;
+    }
+
+    // Fallback: a truly standalone textarea can safely use native CSS resize.
+    const plain = Array.from(scopeRoot().querySelectorAll('textarea')).find(t =>
+      visible(t) && !inPanel(t) && t.id !== 'ContentHiddenTextarea' &&
+      !t.closest('.RadEditor, [id*="radeditor" i], [id*="RadEditor"]')
+    );
+    if (plain && plain.getAttribute('data-er-resizable') !== '1') {
+      plain.setAttribute('data-er-resizable', '1');
+      plain.style.resize = 'both';
+      plain.style.overflow = 'auto';
+      plain.style.minWidth = '320px';
+      plain.style.minHeight = '160px';
+      plain.style.maxWidth = '100%';
+      plain.style.boxSizing = 'border-box';
+    }
+  }
+
   function extractBody() {
     // 1) Telerik RadEditor API (most accurate, reflects unsaved edits)
     try {
@@ -741,6 +805,7 @@
       h += '<div data-er-ui="1" contenteditable="false" style="margin:0 0 6px;">'
         + '<button type="button" data-er-toggle="' + idx + '" style="' + bs + 'background:#fff;color:#1048CA;">View HTML</button>'
         + '<button type="button" data-er-copyhtml="' + idx + '" style="' + bs + 'display:none;margin-left:6px;background:#fff;color:#1048CA;">Copy HTML</button>'
+        + '<button type="button" data-er-clean="' + idx + '" title="Lint and format the Notification Content HTML without removing formatting or content" style="' + bs + 'margin-left:6px;background:#fff;color:#1048CA;">Lint HTML</button>'
         + '<button type="button" data-er-apply="' + idx + '" title="Replace the message in the Cornerstone editor with the content of this box" style="' + bs + 'margin-left:6px;background:#1048CA;color:#fff;">Apply to Message</button>'
         + '</div>';
     }
@@ -917,6 +982,86 @@
       const ok = document.execCommand('copy'); sel.removeAllRanges();
       flash(ok ? 'Notification HTML copied.' : 'Select the HTML and press Ctrl+C.');
     }
+  }
+
+  /* ---------- Lint HTML ---------- */
+  // Conservative cleanup: preserve all tags and attributes that can affect
+  // formatting (style, class, id, span, font, align, etc.). Only remove
+  // comments, normalize repeated NBSPs, remove safe spacer tags, and pretty-print.
+  function cleanNotificationHtml(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = String(html || '');
+
+    // Lint/format rather than sanitize: preserve all elements, attributes,
+    // entities/spacing, and styling that can affect rendering. Only comments
+    // are removed because they do not contribute to the rendered message.
+    const walker = document.createTreeWalker(tmp, NodeFilter.SHOW_COMMENT);
+    const comments = [];
+    while (walker.nextNode()) comments.push(walker.currentNode);
+    comments.forEach(n => n.remove());
+
+    return prettyHtml(tmp.innerHTML);
+  }
+
+  function prettyHtml(html) {
+    const root = document.createElement('div');
+    root.innerHTML = String(html || '');
+    const VOID = new Set(['AREA','BASE','BR','COL','EMBED','HR','IMG','INPUT','LINK','META','PARAM','SOURCE','TRACK','WBR']);
+    const INLINE = new Set(['A','ABBR','B','BDI','BDO','CITE','CODE','DEL','DFN','EM','I','INS','KBD','MARK','Q','S','SAMP','SMALL','STRONG','SUB','SUP','TIME','U','VAR']);
+    const lines = [];
+    const pad = n => '  '.repeat(n);
+    const attrs = el => Array.from(el.attributes).map(a => ' ' + a.name + '=\"' + a.value.replace(/&/g, '&amp;').replace(/\"/g, '&quot;') + '\"').join('');
+    const escText = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    function inlineHtml(el) {
+      return el.outerHTML.replace(/>\s+</g, '><').trim();
+    }
+    function walk(node, depth) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const t = node.nodeValue.replace(/\s+/g, ' ').trim();
+        if (t) lines.push(pad(depth) + escText(t));
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = node.tagName.toLowerCase();
+      if (VOID.has(node.tagName)) {
+        lines.push(pad(depth) + '<' + tag + attrs(node) + '>');
+        return;
+      }
+      // Keep simple inline phrasing together so pretty-printing does not add visual spaces.
+      const children = Array.from(node.childNodes);
+      const inlineOnly = children.length && children.every(n =>
+        n.nodeType === Node.TEXT_NODE || (n.nodeType === Node.ELEMENT_NODE && INLINE.has(n.tagName))
+      );
+      if (INLINE.has(node.tagName) || inlineOnly) {
+        lines.push(pad(depth) + inlineHtml(node));
+        return;
+      }
+      lines.push(pad(depth) + '<' + tag + attrs(node) + '>');
+      children.forEach(n => walk(n, depth + 1));
+      lines.push(pad(depth) + '</' + tag + '>');
+    }
+    Array.from(root.childNodes).forEach(n => walk(n, 0));
+    return lines.join('\n');
+  }
+
+  function cleanNotifHtml(box, idx) {
+    const content = box.querySelector('[data-er-notif="' + idx + '"]');
+    if (!content) return;
+
+    const htmlMode = content.getAttribute('data-er-mode') === 'html';
+    const pre = htmlMode ? content.querySelector('[data-er-src]') : null;
+    const source = htmlMode ? (pre ? pre.textContent : content.textContent) : content.innerHTML;
+    const cleaned = cleanNotificationHtml(source);
+
+    if (htmlMode) {
+      if (pre) pre.textContent = cleaned;
+      else content.textContent = cleaned;
+    } else {
+      content.innerHTML = cleaned;
+    }
+    userEdited = true;
+    flash('Notification HTML linted and formatted. View HTML to review the indented source, then use Apply to Message when ready.');
   }
 
   /* ---------- Apply edits back to the Cornerstone message editor ---------- */
@@ -1111,6 +1256,7 @@
   }
   function render(force) {
     injectStyles();
+    makeOriginalMessageEditorResizable();
     let panel = document.getElementById(PANEL_ID);
     if (!panel) {
       panel = document.createElement('div');
@@ -1161,10 +1307,11 @@
       box.style.cssText = 'background:#fff;border:1px solid #bbb;border-radius:4px;padding:14px;min-height:200px;max-height:700px;overflow:auto;outline:none;';
       box.addEventListener('input', () => { userEdited = true; });
       box.addEventListener('click', (ev) => {
-        const t = ev.target.closest('[data-er-toggle],[data-er-copyhtml],[data-er-apply]');
+        const t = ev.target.closest('[data-er-toggle],[data-er-copyhtml],[data-er-clean],[data-er-apply]');
         if (!t || !box.contains(t)) return;
         ev.preventDefault();
         if (t.hasAttribute('data-er-toggle')) { toggleNotifHtml(box, t.getAttribute('data-er-toggle')); userEdited = true; }
+        else if (t.hasAttribute('data-er-clean')) cleanNotifHtml(box, t.getAttribute('data-er-clean'));
         else if (t.hasAttribute('data-er-apply')) applyToMessage(box, t.getAttribute('data-er-apply'));
         else copyNotifHtml(box, t.getAttribute('data-er-copyhtml'));
       });
@@ -1247,5 +1394,7 @@
   }
 
   // Give rich text editors (iframes) time to load their content
+  setTimeout(makeOriginalMessageEditorResizable, 750);
+  setTimeout(makeOriginalMessageEditorResizable, 2000);
   setTimeout(init, 1200);
 })();

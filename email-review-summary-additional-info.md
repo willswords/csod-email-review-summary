@@ -1,68 +1,103 @@
 # CSOD Email Review Summary – Additional Info
 
-**Current version:** 1.21
+**Current version:** 1.28
 
-Cornerstone OnDemand (CSOD) email templates are hard to review. The settings are spread across the page, and reviewers outside Cornerstone can't see them. This userscript reads the email template you have open and builds an editable summary of its settings and content in a panel at the bottom of the page. You can then copy it, download it, or send it for review.
+This page supplements the README with more detail about reviewing, cleaning, and applying Notification Content.
 
----
+## Lint HTML behavior
 
-## Features
+**Lint HTML** is a review and formatting tool, not a sanitizer. Its priority is to make source HTML easier to inspect without changing the visual design of the email.
 
-- **Settings summary:** shows the Email Title, Subject, recipients, Availability Criteria, and languages for the email that's open. The Email Title and Subject values are bold.
-- **Notification Content:** the message body, formatted the same way as in Cornerstone's message editor.
-  - Bulleted and numbered lists keep their bullets, numbers, and indents, including nested lists *(v1.19)*.
-  - Headings, centered content, dividers (`<hr>`), and images are laid out the same as in the editor *(v1.20)*.
-  - Hyperlinks are underlined, the same as in the editor *(v1.21)*.
-- **Editable:** you can type revisions straight into the summary before you share it.
-- **View HTML / Copy HTML:** switch a content box to its HTML source and copy it.
-- **Apply to Message:** copies your edits from a content box back into the Cornerstone message editor. Nothing is saved until you click **Save Email** in Cornerstone.
-- **Translated emails:** each translated language gets its own Email Title, Subject, and Notification Content section.
+### Automatic formatting
 
-## Panel buttons
+Lint HTML:
 
-| Button | What it does |
-|---|---|
-| **Copy Rich Text** | Copies the whole summary so you can paste it into Outlook, Teams, or Word |
-| **Download for Word** | Downloads the summary as a file you can open in Word |
-| **Refresh** | Rebuilds the summary from the page |
-| **Load Translations** | Switches the Message Language dropdown to each language and back to load its content. Nothing is saved |
-| **Copy Debug HTML** | Copies the page details needed to troubleshoot the script |
-| **Hide / Show** | Collapses or expands the panel |
-| **View HTML / View Formatted** | Switches a content box between its HTML source and the formatted view |
-| **Copy HTML** | Copies a content box's HTML (shown while viewing HTML) |
-| **Apply to Message** | Writes a content box back into the Cornerstone editor for that language |
+- removes HTML comments;
+- adds readable line breaks and two-space indentation; and
+- keeps simple inline phrasing together when additional whitespace could affect rendering.
 
-## Settings
+It preserves styling tags, style attributes, classes, IDs, tables, links, images, alignment attributes, and meaningful spacing.
 
-These are near the top of the script.
+### Advisory warning checks
 
-| Setting | Default | What it does |
-|---|---|---|
-| `SHOW_EXTRAS` | `false` | Also shows the Action (trigger) and Email Format rows |
-| `BOLD_VALUES` | `['Email Title', 'Subject']` | Which settings show their values in bold |
-| `AUTO_LOAD_TRANSLATIONS` | `true` | Loads translated content automatically when an email with translations opens |
-| `LOAD_ALL_LANGUAGES` | `true` | When `true`, Load Translations goes through every language. When `false`, only languages with a translated title or subject |
+Warnings do not automatically change the HTML. They identify items for a reviewer to inspect.
 
-## Notes and limitations
+- **Images missing `alt`:** flag images without alternative text. Decorative images can appropriately use `alt=""`.
+- **Missing image sources:** flag image elements without a usable `src`.
+- **Empty links:** flag anchors without meaningful linked content.
+- **Missing or malformed `href`:** flag links that are unlikely to work.
+- **Potentially unsafe URL schemes:** flag values such as `javascript:`.
+- **Duplicate IDs:** flag IDs reused within the same message.
+- **Heading-order jumps:** flag structural jumps such as `h1` to `h3`.
+- **Empty formatting elements:** flag markup that appears to be leftover editor debris.
+- **Active/embedded content:** flag `script`, `iframe`, `object`, and form controls because email clients commonly block or remove them.
+- **Table accessibility:** flag data-like tables without identifiable header cells while avoiding blanket warnings for layout tables.
 
-- **Display only:** the formatting fixes in v1.19–v1.21 only change how the content looks in the panel. They don't change the HTML that's copied, downloaded, or applied to the message.
-- **The email's own styles take priority:** inline styles in the email, such as `text-align: center`, `width="340"`, or a custom list style, override the panel's defaults.
-- **Apply to Message** only works on the language currently showing in the editor, and it won't run while translations are loading.
-- **Save before switching languages:** if you apply changes and then load translations, save first or your applied changes may be lost. The script warns you about this.
-- **Testing:** changes have been tested on simulated pages, not on the live Cornerstone site.
+A warning does not necessarily mean the HTML is wrong. HTML email relies heavily on compatibility-oriented markup, especially tables and inline styling. The linter should prefer a warning over an automatic rewrite whenever a change could alter appearance or email-client behavior.
 
-## Privacy
+### Applying linted content
 
-The script runs only in your browser, on Cornerstone email pages. It doesn't send data anywhere. It reads the page and builds the summary locally. Content only leaves the page when you copy or download it yourself.
+Lint HTML changes the review copy first. Use **View HTML** to inspect it, make any desired corrections, compare the rendered result, and then use **Apply to Message**. Cornerstone is not changed until Apply to Message is used.
 
-## Changelog
+## Resizable original message editor
 
-| Version | Changes |
-|---|---|
-| **1.21** | Hyperlinks in Notification Content are now underlined, the same as in the message editor. |
-| **1.20** | Notification Content now shows headings, centered content, dividers (`<hr>`), and images the same way the message editor does. Before, an image inside a centered heading ran into the heading text, and dividers were hidden. |
-| **1.19** | Lists in Notification Content now show bullets, numbers, and indents. Nested lists use circle, then square bullets. List `type` settings (such as `<ol type="a">`) still apply. |
-| **1.18** | Automatic translation loading only opens translated languages. Added a warning about unsaved applied changes before loading translations. Apply to Message waits until loading finishes. |
-| **1.17** | Added support for translated emails: translated titles, subjects, and content, the Load Translations button, and per-language View HTML / Copy HTML / Apply to Message. |
+Version 1.24 makes the original Cornerstone message editor resizable. Drag the handle at the lower-right corner of the editor to change both its width and height.
 
-For earlier versions, see the README.
+### Supported editor types
+
+- Cornerstone's Telerik RadEditor container
+- Editable iframe editors
+- Contenteditable editor regions
+- Plain textarea editor variants
+
+### Resize behavior
+
+- Minimum width: **320 pixels**
+- Minimum height: **160 pixels**
+- Maximum width: **100% of the available page width**
+- Horizontal and vertical resizing are enabled
+- Overflow remains scrollable when content is larger than the resized editor
+- Resize support is reapplied after asynchronous Cornerstone editor reloads, such as Message Language changes
+
+Resizing changes only the editor workspace shown in the browser. It does not add dimensions to the email HTML, change the review summary, or affect the message received by learners.
+
+### Limitations
+
+- The resize handle's exact appearance depends on the browser and operating system.
+- Cornerstone may reset the selected dimensions after a full page reload, navigation, or replacement of the editor control.
+- The editor cannot be widened beyond the available page width by this feature.
+- On Telerik RadEditor pages, the script applies resizing to the editor container so the toolbar remains usable.
+
+## Safe review workflow
+
+1. Click **Clean HTML** on the relevant Notification Content section.
+2. Click **View HTML** and inspect the indented source.
+3. Toggle back to the rendered view to confirm the message still looks correct.
+4. Click **Apply to Message** only after the cleaned result is acceptable.
+5. Save in Cornerstone immediately.
+6. For localized emails, repeat the process with the matching language selected in Cornerstone.
+
+## Limitations
+
+- Removing inline styling can change fonts, colors, spacing, alignment, image sizing, and other intentional presentation.
+- Removing classes and IDs can affect formatting supplied by a page or email stylesheet.
+- Pretty-printing is designed for readability, not byte-for-byte preservation of the source.
+- The formatter keeps inline phrasing together to avoid inserting visible spaces, so not every nested inline element starts on a separate line.
+- Cleaning the review copy cannot be undone with a dedicated Undo button. Before Apply to Message, use Refresh or reload the source page to rebuild the summary from Cornerstone.
+- Once cleaned content is applied, Cornerstone's own save and navigation behavior determines whether it can be recovered.
+
+## Version history
+
+- **1.28:** renamed Clean HTML to Lint HTML, preserved style-bearing markup and spacing, and documented non-destructive HTML/email warning checks.
+- **1.27:** changed cleaning behavior to preserve tags and attributes that can affect styling.
+- **1.26:** added the dedicated Cornerstone editor resize handle while preserving editor-mode switching.
+- **1.25:** corrected WYSIWYG/HTML visibility interference from the original resizing approach.
+
+- **1.24:** added horizontal and vertical resizing to the original Cornerstone message editor and reapplies resize support after dynamic editor reloads.
+- **1.23:** added readable line breaks and two-space indentation to Clean HTML output.
+- **1.22:** added Clean HTML and its seven HTML5 Editor-style cleanup operations.
+- **1.21:** underlined links in the Notification Content preview.
+- **1.20:** improved headings, alignment, dividers, and image layout.
+- **1.19:** improved list formatting.
+- **1.18:** improved localized-content loading and safeguards.
+- **1.17:** introduced localization support contributed by **Luke Brown**.
