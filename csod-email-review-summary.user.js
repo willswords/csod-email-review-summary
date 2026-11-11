@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
-// @version      1.18
+// @version      1.21
 // @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
 // @match        https://*.csod.com/*Email*.aspx*
@@ -1055,7 +1055,62 @@
     flash('Word document downloaded.' + missingNote(box));
   }
 
+  // Cornerstone's page CSS resets lists, headings and rules (no bullets/numbers, no indent). Restore normal list formatting
+  // inside the summary so the Notification Content looks like it does in the message editor.
+  // ID-scoped rules beat the page reset; inline list styles in the email itself still win.
+  function injectStyles() {
+    if (document.getElementById('er-review-styles')) return;
+    const st = document.createElement('style');
+    st.id = 'er-review-styles';
+    const B = '#' + BOX_ID;
+    const N = B + ' [data-er-notif]';
+    st.textContent = [
+      B + ' ul, ' + B + ' ol { display:block; margin:1em 0; padding-left:40px; }',
+      B + ' ul { list-style:disc outside; }',
+      B + ' ol { list-style:decimal outside; }',
+      B + ' ul ul, ' + B + ' ol ul { list-style-type:circle; margin:0; }',
+      B + ' ul ul ul, ' + B + ' ol ul ul, ' + B + ' ol ol ul, ' + B + ' ul ol ul { list-style-type:square; }',
+      B + ' ol ol, ' + B + ' ul ol { margin:0; }',
+      B + ' li { display:list-item; list-style-type:inherit; list-style-position:outside; }',
+      B + ' li::marker { color:inherit; }',
+      // Honour the HTML type attribute (e.g. <ol type="a">) that the rules above would otherwise override
+      B + ' ol[type="a" s] { list-style-type:lower-alpha; }',
+      B + ' ol[type="A" s] { list-style-type:upper-alpha; }',
+      B + ' ol[type="i" s] { list-style-type:lower-roman; }',
+      B + ' ol[type="I" s] { list-style-type:upper-roman; }',
+      B + ' ul[type="circle" i] { list-style-type:circle; }',
+      B + ' ul[type="square" i] { list-style-type:square; }',
+      B + ' ul[type="disc" i] { list-style-type:disc; }',
+      // Restore normal block formatting inside the Notification Content (Cornerstone's CSS makes headings
+      // inline and hides <hr>, so images and headings run together and alignment is lost).
+      N + ' h1, ' + N + ' h2, ' + N + ' h3, ' + N + ' h4, ' + N + ' h5, ' + N + ' h6 { display:block; font-weight:bold; line-height:1.2; }',
+      N + ' h1 { font-size:2em; margin:0.67em 0; }',
+      N + ' h2 { font-size:1.5em; margin:0.83em 0; }',
+      N + ' h3 { font-size:1.17em; margin:1em 0; }',
+      N + ' h4 { font-size:1em; margin:1.33em 0; }',
+      N + ' h5 { font-size:0.83em; margin:1.67em 0; }',
+      N + ' h6 { font-size:0.67em; margin:2.33em 0; }',
+      N + ' p, ' + N + ' div, ' + N + ' blockquote, ' + N + ' center { display:block; }',
+      N + ' p { margin:1em 0; }',
+      N + ' blockquote { margin:1em 40px; }',
+      N + ' hr { display:block; height:0; border:0; border-top:1px solid #999; margin:0.5em 0; overflow:hidden; visibility:visible; }',
+      N + ' img { display:inline; max-width:100%; height:auto; vertical-align:baseline; float:none; }',
+      N + ' img[align="left" i] { float:left; }',
+      N + ' img[align="right" i] { float:right; }',
+      N + ' strong, ' + N + ' b { font-weight:bold; }',
+      N + ' em, ' + N + ' i { font-style:italic; }',
+      N + ' u { text-decoration:underline; }',
+      N + ' a[href], ' + N + ' a[href] * { text-decoration:underline; }',
+      N + ' s, ' + N + ' strike { text-decoration:line-through; }',
+      N + ' sup { vertical-align:super; font-size:smaller; }',
+      N + ' sub { vertical-align:sub; font-size:smaller; }',
+      N + ' table { border-collapse:separate; }',
+      N + ' td, ' + N + ' th { display:table-cell; }'
+    ].join('\n');
+    (document.head || document.documentElement).appendChild(st);
+  }
   function render(force) {
+    injectStyles();
     let panel = document.getElementById(PANEL_ID);
     if (!panel) {
       panel = document.createElement('div');
