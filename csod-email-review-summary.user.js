@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
-// @version      1.16
-// @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review.
+// @version      1.18
+// @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
 // @match        https://*.csod.com/*Email*.aspx*
 // @match        https://*.csod.com/Email/*
@@ -10,6 +10,7 @@
 // @match        https://*.csod.com/*EmailEdit*.aspx*
 // @match        https://*.csod.com/LMS/Admin/NewUI/ManageTrainingEditCombined.aspx*
 // @match        https://*.csod.com/*ManageTraining*.aspx*
+// @license      MIT
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
@@ -22,6 +23,14 @@
 
   // Settings whose values are shown in bold in the summary.
   const BOLD_VALUES = ['Email Title', 'Subject'];
+
+  // Localised emails: translated titles and subjects are read straight from the page. Cornerstone only sends
+  // the message body for the language picked in the Message "Language" dropdown, so the panel's
+  // "Load Translations" button switches that dropdown to each translated language and back (nothing is saved).
+  // Set to true to do this automatically when an email with translations opens.
+  const AUTO_LOAD_TRANSLATIONS = true;
+  // false = only load languages that have a translated title or subject; true = every language in the dropdown.
+  const LOAD_ALL_LANGUAGES = true;
 
   const PANEL_ID = 'er-review-panel';
   const BOX_ID = 'er-review-box';
@@ -53,7 +62,7 @@
       for (const h of document.querySelectorAll(sel)) {
         if (inPanel(h)) continue;
         const t = clean(h.textContent);
-        if (t && t.length <= 150) return t.replace(/\s*-\s*Edit$/i, '').replace(/^Edit\s+(?!Email$)/i, '');
+        if (t && t.length <= 150) return t.replace(/\s*-\s*Edit$/i, '').replace(/^Edit\s+(?!E-?mail$)/i, '');
       }
     }
     // Fall back to the browser tab title, e.g. "Manage Email - Realize Your Potential: ..."
@@ -423,7 +432,194 @@
 
   function learningObjectTitle() {
     const t = pageTitle();
-    return /^(edit|manage|create|copy)\s+email$/i.test(t) ? 'N/A (system email – not tied to a learning object)' : t;
+    return /^(edit|manage|create|copy)\s+e-?mail$/i.test(t) ? 'N/A (system email – not tied to a learning object)' : t;
+  }
+
+  /* ---------- localisation (multi-language emails) ---------- */
+  // Title/subject translations sit in hidden JSON fields keyed by Cornerstone culture ID, e.g.
+  //   ctrlTitleTranslator_data = {"2":"Title (UK)","1":"","15":"Título (ES)"}
+  // Only the body for the language chosen in the Message "Language" dropdown is on the page at a time, so
+  // bodies are cached per language whenever they are shown (page load, each language switch, Load Translations).
+  const bodyCache = new Map();   // culture id -> sanitised body HTML
+  let shownLangId = '';          // culture whose body is currently in the editor
+  let initialLangId = '';        // dropdown value when the page first loaded (normally the default language)
+  let cycling = false;           // true while Load Translations is switching languages
+  let loadBtn = null;
+  let appliedUnsaved = false;     // Apply to Message has changed the editor since the page loaded
+
+  const langSelect = () => byId('_messageLanguageSelector_LanguageDDN');
+  const currentLangId = () => { const d = langSelect(); return d ? String(d.value) : ''; };
+  const textOnly = (h) => clean(String(h || '').replace(/<[^>]*>/g, ' '));
+
+  function translations(kind) {
+    const el = byId('ctrl' + kind + 'Translator_data');
+    if (!el || !el.value) return {};
+    try { const o = JSON.parse(el.value); return (o && typeof o === 'object') ? o : {}; } catch (e) { return {}; }
+  }
+
+  function languages() {
+    const out = [];
+    const d = langSelect();
+    if (d) Array.from(d.options).forEach(o => {
+      const id = String(o.value);
+      if (id && !out.some(l => l.id === id)) out.push({ id, name: clean(o.textContent) });
+    });
+    [translations('Title'), translations('Subject')].forEach(t => Object.keys(t).forEach(id => {
+      if (!out.some(l => l.id === id)) out.push({ id, name: 'Language ' + id });
+    }));
+    return out;
+  }
+
+  function langName(id) {
+    const l = languages().find(x => x.id === String(id));
+    return l ? l.name : 'Language ' + id;
+  }
+
+  function defaultLangId() {
+    const langs = languages();
+    const name = clean(defaultLanguage()).toLowerCase();
+    const byName = name && langs.find(l => l.name.toLowerCase() === name);
+    if (byName) return byName.id;
+    const t = translations('Title'), title = inputValue(byId('_txtTitle'));
+    const byTitle = title && Object.keys(t).find(id => clean(t[id]) === title);
+    if (byTitle) return byTitle;
+    return initialLangId || (langs[0] ? langs[0].id : '');
+  }
+
+  // Store the body that is currently in the editor against its language
+  function captureShown() {
+    if (!langSelect()) return;
+    const id = shownLangId || currentLangId();
+    if (!id) return;
+    const b = extractBody();
+    if (b || !bodyCache.has(id)) bodyCache.set(id, b);
+  }
+
+  // Body for a language: live editor content if it's the one showing, otherwise the cached copy (null = not loaded)
+  function bodyFor(id) {
+    id = String(id);
+    if (!langSelect()) return id === String(defaultLangId()) ? extractBody() : null;
+    if (id === (shownLangId || currentLangId())) return extractBody();
+    return bodyCache.has(id) ? bodyCache.get(id) : null;
+  }
+
+  // Languages other than the default that have a translated title, subject or body
+  function localisedLangs() {
+    if (!langSelect() && !Object.keys(translations('Title')).length && !Object.keys(translations('Subject')).length) return [];
+    const def = defaultLangId();
+    const t = translations('Title'), s = translations('Subject');
+    const defBody = textOnly(bodyCache.get(def));
+    return languages().filter(l => {
+      if (l.id === def) return false;
+      if (clean(t[l.id]) || clean(s[l.id])) return true;
+      const b = textOnly(bodyCache.get(l.id));
+      return !!b && b !== defBody;
+    });
+  }
+
+  const pageRequestManager = () => {
+    try {
+      return (W.Sys && W.Sys.WebForms && W.Sys.WebForms.PageRequestManager) ? W.Sys.WebForms.PageRequestManager.getInstance() : null;
+    } catch (e) { return null; }
+  };
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  async function waitUntil(fn, ms) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (fn()) return true; await sleep(200); }
+    return !!fn();
+  }
+
+  // Switch the Message language dropdown exactly as Cornerstone's own onchange does (async postback),
+  // then wait for the new language's body to arrive.
+  async function switchLang(id) {
+    id = String(id);
+    const prm = pageRequestManager();
+    const d = langSelect();
+    if (!prm || !d || typeof W.__doPostBack !== 'function') throw new Error('the language selector is not available');
+    if (!Array.from(d.options).some(o => String(o.value) === id)) throw new Error(langName(id) + ' is not in the Language list');
+    if (currentLangId() === id && shownLangId === id) return;
+    await waitUntil(() => !prm.get_isInAsyncPostBack(), 15000);
+    await new Promise((resolve, reject) => {
+      let done = false;
+      const finish = (err) => {
+        if (done) return;
+        done = true; clearTimeout(timer); prm.remove_endRequest(onEnd);
+        if (err) reject(err); else resolve();
+      };
+      const onEnd = (s, args) => {
+        const e = args && args.get_error && args.get_error();
+        finish(e ? new Error(e.message || 'Cornerstone returned an error') : null);
+      };
+      const timer = setTimeout(() => finish(new Error('timed out waiting for ' + langName(id))), 30000);
+      prm.add_endRequest(onEnd);
+      langSelect().value = id;
+      W.__doPostBack(langSelect().name, '');
+    });
+    shownLangId = currentLangId();
+    if (shownLangId !== id) throw new Error('Cornerstone did not switch to ' + langName(id));
+    await waitUntil(() => !!extractBody(), 1500); // give the editor a moment to load the new content (empty languages don't need long)
+  }
+
+  function setLoadBtnBusy(busy) {
+    if (!loadBtn) return;
+    loadBtn.disabled = busy;
+    loadBtn.style.opacity = busy ? '0.6' : '';
+    loadBtn.textContent = busy ? 'Loading translations…' : 'Load Translations';
+  }
+
+  function updateLoadBtn() {
+    if (!loadBtn || cycling) return;
+    const show = isEmailEditForm() && !!langSelect() && languages().length > 1 && (LOAD_ALL_LANGUAGES || localisedLangs().length > 0);
+    loadBtn.style.display = show ? '' : 'none';
+  }
+
+  async function loadTranslations(opts) {
+    opts = opts || {};
+    if (cycling) return;
+    if (!langSelect() || !pageRequestManager()) { flash('No Message language selector on this page.'); return; }
+    if (!opts.auto && appliedUnsaved && !confirm('You applied changes to the message that have not been saved. Loading translations switches the Message language, and Cornerstone may discard those unsaved changes.\n\nClick Save in Cornerstone first if you want to keep them. Continue anyway?')) return;
+    if (!opts.auto && userEdited && !confirm('Loading translations will rebuild the summary and discard edits made in the summary box. Continue?')) return;
+
+    const start = shownLangId || currentLangId();
+    const def = defaultLangId();
+    const listed = (id) => Array.from(langSelect().options).some(o => String(o.value) === id);
+    let targets = ((LOAD_ALL_LANGUAGES && !opts.auto) ? languages() : localisedLangs()).map(l => l.id);
+    if (def && !targets.includes(def)) targets.unshift(def); // the default body is needed for the main section
+    targets = targets.filter(id => id !== start && listed(id));
+
+    if (!targets.length) {
+      userEdited = false; render(true);
+      flash('No other translated languages to load.');
+      return;
+    }
+
+    cycling = true;
+    setLoadBtnBusy(true);
+    let failed = '';
+    try {
+      captureShown();
+      for (const id of targets) {
+        flash('Loading ' + langName(id) + '…', true);
+        await switchLang(id);
+        captureShown();
+      }
+    } catch (e) {
+      failed = (e && e.message) || String(e);
+    }
+    try {
+      if (start && (shownLangId || currentLangId()) !== start) {
+        flash('Switching back to ' + langName(start) + '…', true);
+        await switchLang(start);
+      }
+    } catch (e) {
+      failed = failed || ('could not switch back to ' + langName(start) + ' (' + ((e && e.message) || e) + ')');
+    } finally {
+      cycling = false;
+      setLoadBtnBusy(false);
+    }
+    userEdited = false;
+    render(true);
+    flash(failed ? 'Translations incomplete – ' + failed : 'Translations loaded.');
   }
 
   /* ---------- build summary HTML ---------- */
@@ -537,17 +733,57 @@
     return h;
   }
 
+  // "View HTML" / "Copy HTML" / "Apply to Message" + content box + revisions box for one language's Notification Content
+  function notifBlock(idx, body, emptyMsg, missing, langId) {
+    const bs = 'padding:3px 10px;border:1px solid #1048CA;border-radius:4px;cursor:pointer;font:600 12px Segoe UI,Arial,sans-serif;';
+    let h = '';
+    if (body) {
+      h += '<div data-er-ui="1" contenteditable="false" style="margin:0 0 6px;">'
+        + '<button type="button" data-er-toggle="' + idx + '" style="' + bs + 'background:#fff;color:#1048CA;">View HTML</button>'
+        + '<button type="button" data-er-copyhtml="' + idx + '" style="' + bs + 'display:none;margin-left:6px;background:#fff;color:#1048CA;">Copy HTML</button>'
+        + '<button type="button" data-er-apply="' + idx + '" title="Replace the message in the Cornerstone editor with the content of this box" style="' + bs + 'margin-left:6px;background:#1048CA;color:#fff;">Apply to Message</button>'
+        + '</div>';
+    }
+    h += '<div data-er-notif="' + idx + '" data-er-mode="rendered"' + (langId ? ' data-er-lang="' + esc(langId) + '"' : '') + (missing ? ' data-er-missing="1"' : '')
+      + ' style="border:1px solid #b8c4dc;border-left:4px solid #1048CA;border-radius:4px;padding:12px;' + S.p + '">'
+      + (body || (missing ? '<i style="color:#8a6d00;">' + esc(emptyMsg) + '</i>' : esc(emptyMsg))) + '</div>';
+    h += '<p style="' + S.p + 'margin:8px 0 2px;"><b>Requested revisions to content:</b></p>';
+    h += '<div style="border:1px dashed #c9a800;background:#fffbe6;min-height:50px;padding:8px;">&nbsp;</div>';
+    return h;
+  }
+
+  function settingRow(label, value, multiline) {
+    const valHtml = multiline ? esc(value).replace(/\n/g, '<br>') : esc(value);
+    const boldVal = BOLD_VALUES.includes(label) && value !== '(blank)' && !/^\(not translated/.test(value);
+    return '<tr><td style="' + S.td + '"><b>' + esc(label) + '</b></td><td style="' + S.td + '">' + (boldVal ? '<b>' + valHtml + '</b>' : valHtml) + '</td>'
+      + '<td style="' + S.td + '">&nbsp;</td><td style="' + S.rev + '">&nbsp;</td></tr>';
+  }
+
   function buildSummary() {
     if (!isEmailEditForm()) return buildListSummary();
+    captureShown();
 
     const title = pageTitle();
     const settings = extractSettings();
-    const body = extractBody();
+    const multi = !!langSelect();
+    const defId = multi ? defaultLangId() : '';
+    const defName = defId ? langName(defId) : '';
+    const shown = shownLangId || currentLangId();
+    const locs = localisedLangs();
+    const tTitle = translations('Title'), tSubject = translations('Subject');
+
+    // While another language is showing in the editor, take the default subject from the saved translations
+    if (locs.length && defId && shown !== defId && clean(tSubject[defId])) {
+      const r = settings.find(x => x.label === 'Subject');
+      if (r) r.value = clean(tSubject[defId]);
+    }
+    const body = multi ? bodyFor(defId) : extractBody();
     const et = settings.find(r => r.label === 'Email Title');
     const emailTitle = (et && et.value !== '(blank)') ? et.value : title;
     const history = extractHistory(5);
+    const defTag = locs.length ? ' – ' + defName + ' (default)' : '';
 
-    let h = '<h2 style="' + S.h + 'font-size:19px;">Email Review: ' + esc(/^(edit|manage|create|copy)\s+email$/i.test(title) ? emailTitle : title) + '</h2>';
+    let h = '<h2 style="' + S.h + 'font-size:19px;">Email Review: ' + esc(/^(edit|manage|create|copy)\s+e-?mail$/i.test(title) ? emailTitle : title) + '</h2>';
     // Subtitle: the email's action/trigger (e.g. "Assign Training"), falling back to Type
     const actEl = byId('_lblAction');
     const typeRow = settings.find(r => r.label === 'Type');
@@ -555,44 +791,54 @@
     if (subtitle) h += '<div style="display:block;margin:0 0 8px;"><h2 style="display:inline;">' + esc(subtitle) + '</h2></div>';
     h += '<p style="' + S.p + 'margin:4px 0 10px;"><b>Reviewer instructions:</b> Please review the settings and content below. '
       + 'Enter any changes in the yellow <i>Requested Revision</i> column (or directly in the content section) and return this document. '
-      + 'Leave blank if no change is needed.</p>';
+      + 'Leave blank if no change is needed.'
+      + (locs.length ? ' Localised (translated) versions follow the ' + esc(defName) + ' content.' : '') + '</p>';
 
     // Overview
     h += '<h3 style="' + S.h + '">Overview</h3><table style="' + S.tbl + '">';
-    [
+    const overview = [
       ['Learning Object', learningObjectTitle()],
       ['Prepared by', currentUser() || '(unknown)'],
       ['Generated', new Date().toLocaleString()],
       ['Page URL', location.href]
-    ].forEach(([k, v]) => {
+    ];
+    if (locs.length) overview.splice(1, 0, ['Languages', defName + ' (default); localised: ' + locs.map(l => l.name).join(', ')]);
+    overview.forEach(([k, v]) => {
       h += '<tr><th style="' + S.th + 'width:28%;">' + esc(k) + '</th><td style="' + S.td + '">' + esc(v) + '</td></tr>';
     });
     h += '</table>';
 
     // Email Settings
-    h += '<h3 style="' + S.h + '">Email Settings</h3><table style="' + S.tbl + '"><tr>'
+    h += '<h3 style="' + S.h + '">Email Settings' + esc(defTag) + '</h3><table style="' + S.tbl + '"><tr>'
       + '<th style="' + S.th + '">Setting</th><th style="' + S.th + '">Current Value</th>'
       + '<th style="' + S.th + '">Details</th><th style="' + S.th + '">Requested Revision</th></tr>';
-    settings.forEach(f => {
-      const valHtml = f.multiline ? esc(f.value).replace(/\n/g, '<br>') : esc(f.value);
-      const boldVal = BOLD_VALUES.includes(f.label) && f.value !== '(blank)';
-      h += '<tr><td style="' + S.td + '"><b>' + esc(f.label) + '</b></td><td style="' + S.td + '">' + (boldVal ? '<b>' + valHtml + '</b>' : valHtml) + '</td>'
-        + '<td style="' + S.td + '">&nbsp;</td><td style="' + S.rev + '">&nbsp;</td></tr>';
-    });
+    settings.forEach(f => { h += settingRow(f.label, f.value, f.multiline); });
     h += '</table>';
 
     // Content
-    h += '<h3 style="' + S.h + '">Notification Content</h3>';
-    if (body) {
-      h += '<div data-er-ui="1" contenteditable="false" style="margin:0 0 6px;">'
-        + '<button type="button" data-er-toggle="1" style="padding:3px 10px;border:1px solid #1048CA;border-radius:4px;background:#fff;color:#1048CA;cursor:pointer;font:600 12px Segoe UI,Arial,sans-serif;">View HTML</button>'
-        + '<button type="button" data-er-copyhtml="1" style="display:none;margin-left:6px;padding:3px 10px;border:1px solid #1048CA;border-radius:4px;background:#fff;color:#1048CA;cursor:pointer;font:600 12px Segoe UI,Arial,sans-serif;">Copy HTML</button>'
-        + '<button type="button" data-er-apply="1" title="Replace the message in the Cornerstone editor with the content of this box" style="margin-left:6px;padding:3px 10px;border:1px solid #1048CA;border-radius:4px;background:#1048CA;color:#fff;cursor:pointer;font:600 12px Segoe UI,Arial,sans-serif;">Apply to Message</button>'
-        + '</div>';
-    }
-    h += '<div data-er-notif="1" data-er-mode="rendered" style="border:1px solid #b8c4dc;border-left:4px solid #1048CA;border-radius:4px;padding:12px;' + S.p + '">' + (body || '(no content found)') + '</div>';
-    h += '<p style="' + S.p + 'margin:8px 0 2px;"><b>Requested revisions to content:</b></p>';
-    h += '<div style="border:1px dashed #c9a800;background:#fffbe6;min-height:50px;padding:8px;">&nbsp;</div>';
+    h += '<h3 style="' + S.h + '">Notification Content' + esc(defTag) + '</h3>';
+    h += notifBlock(0, body, body === null
+      ? defName + ' content not loaded – use "Load Translations" in the summary panel, or switch the Message language back to ' + defName + '.'
+      : '(no content found)', body === null, defId);
+
+    // Localised versions: the translated title, subject and content for each language
+    locs.forEach((l, i) => {
+      const fallback = '(not translated – the ' + defName + ' text is used)';
+      h += '<h3 style="' + S.h + 'margin-top:22px;border-top:2px solid #1048CA;padding-top:10px;">Localised Version – ' + esc(l.name) + '</h3>';
+      h += '<table style="' + S.tbl + '"><tr>'
+        + '<th style="' + S.th + '">Setting</th><th style="' + S.th + '">Current Value</th>'
+        + '<th style="' + S.th + '">Details</th><th style="' + S.th + '">Requested Revision</th></tr>';
+      h += settingRow('Language', l.name);
+      h += settingRow('Email Title', clean(tTitle[l.id]) || fallback);
+      h += settingRow('Subject', clean(tSubject[l.id]) || fallback);
+      h += '</table>';
+      h += '<p style="' + S.p + 'color:#555;font-size:12px;margin:0 0 8px;">All other settings (addresses, type, recipients, availability) are shared with the ' + esc(defName) + ' version above.</p>';
+      h += '<h3 style="' + S.h + '">Notification Content – ' + esc(l.name) + '</h3>';
+      const b = bodyFor(l.id);
+      h += notifBlock(i + 1, b, b === null
+        ? l.name + ' content not loaded – use "Load Translations" in the summary panel, or switch the Message language to ' + l.name + '.'
+        : '(no ' + l.name + ' content found)', b === null, l.id);
+    });
 
     // History
     if (history.length) {
@@ -618,18 +864,25 @@
     return b;
   }
 
-  function flash(msg) {
+  let flashTimer = null;
+  function flash(msg, keep) {
     const s = document.getElementById('er-status');
     if (!s) return;
     s.textContent = msg;
-    setTimeout(() => { s.textContent = ''; }, 3000);
+    clearTimeout(flashTimer);
+    if (!keep) flashTimer = setTimeout(() => { s.textContent = ''; }, msg.length > 60 ? 6000 : 3000);
+  }
+
+  // Appended to copy/download messages when a language's content hasn't been loaded yet
+  function missingNote(box) {
+    return box.querySelector('[data-er-missing]') ? ' Note: some translated content was not loaded – click Load Translations first.' : '';
   }
 
   /* ---------- View HTML toggle ---------- */
-  function toggleNotifHtml(box) {
-    const content = box.querySelector('[data-er-notif]');
-    const btnT = box.querySelector('[data-er-toggle]');
-    const btnC = box.querySelector('[data-er-copyhtml]');
+  function toggleNotifHtml(box, idx) {
+    const content = box.querySelector('[data-er-notif="' + idx + '"]');
+    const btnT = box.querySelector('[data-er-toggle="' + idx + '"]');
+    const btnC = box.querySelector('[data-er-copyhtml="' + idx + '"]');
     if (!content || !btnT) return;
     if (content.getAttribute('data-er-mode') !== 'html') {
       // Rendered -> HTML source (includes any edits made in the box)
@@ -654,8 +907,8 @@
     }
   }
 
-  async function copyNotifHtml(box) {
-    const pre = box.querySelector('[data-er-notif] [data-er-src]');
+  async function copyNotifHtml(box, idx) {
+    const pre = box.querySelector('[data-er-notif="' + idx + '"] [data-er-src]');
     if (!pre) return;
     try { await navigator.clipboard.writeText(pre.textContent); flash('Notification HTML copied.'); }
     catch (e) {
@@ -667,8 +920,8 @@
   }
 
   /* ---------- Apply edits back to the Cornerstone message editor ---------- */
-  function notifHtmlForApply(box) {
-    const content = box.querySelector('[data-er-notif]');
+  function notifHtmlForApply(box, idx) {
+    const content = box.querySelector('[data-er-notif="' + idx + '"]');
     if (!content) return null;
     let html;
     if (content.getAttribute('data-er-mode') === 'html') {
@@ -723,11 +976,22 @@
     return '';
   }
 
-  function applyToMessage(box) {
-    const html = notifHtmlForApply(box);
+  function applyToMessage(box, idx) {
+    if (cycling) { flash('Wait for translations to finish loading, then try again.'); return; }
+    const content = box.querySelector('[data-er-notif="' + idx + '"]');
+    // The editor only holds one language at a time, so only apply a block to its own language
+    const blockLang = content ? (content.getAttribute('data-er-lang') || '') : '';
+    const editorLang = shownLangId || currentLangId();
+    const langLabel = blockLang ? langName(blockLang) : '';
+    if (blockLang && editorLang && blockLang !== editorLang) {
+      alert('The Cornerstone editor is currently showing ' + langName(editorLang) + '.\n\nSwitch the Message "Language" dropdown to ' + langLabel + ' first, then click Apply to Message again.');
+      return;
+    }
+    const html = notifHtmlForApply(box, idx);
     if (html == null || !clean(html.replace(/<[^>]*>/g, ''))) { flash('Nothing to apply.'); return; }
-    if (!confirm('Replace the message in the Cornerstone editor with the Notification Content from this summary?\n\nChanges are not saved until you click Save in Cornerstone.')) return;
+    if (!confirm('Replace the ' + (langLabel ? langLabel + ' ' : '') + 'message in the Cornerstone editor with the Notification Content from this summary?\n\nChanges are not saved until you click Save in Cornerstone.')) return;
     const where = writeToEditor(html);
+    if (where) appliedUnsaved = true;
     if (!where) { flash('Could not find the message editor on this page.'); return; }
     flash(where === 'plain'
       ? 'Applied as plain text. Review the message, then click Save in Cornerstone.'
@@ -739,8 +1003,9 @@
     const clone = box.cloneNode(true);
     clone.querySelectorAll('[data-er-ui]').forEach(n => n.remove());
     clone.querySelectorAll('[data-er-added]').forEach(n => n.removeAttribute('data-er-added'));
-    clone.querySelectorAll('[data-er-notif],[data-er-src]').forEach(n => {
+    clone.querySelectorAll('[data-er-notif],[data-er-src],[data-er-missing],[data-er-lang]').forEach(n => {
       n.removeAttribute('data-er-notif'); n.removeAttribute('data-er-mode'); n.removeAttribute('data-er-src');
+      n.removeAttribute('data-er-missing'); n.removeAttribute('data-er-lang');
     });
     return clone;
   }
@@ -760,7 +1025,7 @@
         'text/html': new Blob([html], { type: 'text/html' }),
         'text/plain': new Blob([text], { type: 'text/plain' })
       })]);
-      flash('Copied as rich text. Paste into Outlook, Teams, or Word.');
+      flash('Copied as rich text. Paste into Outlook, Teams, or Word.' + missingNote(box));
     } catch (e) {
       const tmpNode = document.createElement('div');
       tmpNode.style.cssText = 'position:fixed;left:-99999px;top:0;';
@@ -772,7 +1037,7 @@
       const ok = document.execCommand('copy');
       sel.removeAllRanges();
       tmpNode.remove();
-      flash(ok ? 'Copied (fallback). Paste into Outlook, Teams, or Word.' : 'Copy failed. Select the box and press Ctrl+C.');
+      flash(ok ? 'Copied (fallback). Paste into Outlook, Teams, or Word.' + missingNote(box) : 'Copy failed. Select the box and press Ctrl+C.');
     }
   }
 
@@ -787,7 +1052,7 @@
     a.download = 'Email Review - ' + name + '.doc';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    flash('Word document downloaded.');
+    flash('Word document downloaded.' + missingNote(box));
   }
 
   function render(force) {
@@ -809,6 +1074,10 @@
         if (userEdited && !confirm('Refreshing will discard edits made in the summary box. Continue?')) return;
         userEdited = false; render(true); flash('Summary refreshed.');
       }));
+      loadBtn = btn('Load Translations', () => loadTranslations());
+      loadBtn.title = 'Switches the Message language to each translated language and back so its content can be included. Nothing is saved.';
+      loadBtn.style.display = 'none';
+      head.appendChild(loadBtn);
       head.appendChild(btn('Copy Debug HTML', async () => {
         let html = '<!-- URL: ' + location.href + ' -->\n' + document.documentElement.outerHTML;
         document.querySelectorAll('iframe').forEach((fr, i) => {
@@ -840,9 +1109,9 @@
         const t = ev.target.closest('[data-er-toggle],[data-er-copyhtml],[data-er-apply]');
         if (!t || !box.contains(t)) return;
         ev.preventDefault();
-        if (t.hasAttribute('data-er-toggle')) { toggleNotifHtml(box); userEdited = true; }
-        else if (t.hasAttribute('data-er-apply')) applyToMessage(box);
-        else copyNotifHtml(box);
+        if (t.hasAttribute('data-er-toggle')) { toggleNotifHtml(box, t.getAttribute('data-er-toggle')); userEdited = true; }
+        else if (t.hasAttribute('data-er-apply')) applyToMessage(box, t.getAttribute('data-er-apply'));
+        else copyNotifHtml(box, t.getAttribute('data-er-copyhtml'));
       });
 
       panel.appendChild(head);
@@ -853,6 +1122,7 @@
       else document.body.appendChild(panel);
     }
     if (force || !userEdited) document.getElementById(BOX_ID).innerHTML = buildSummary();
+    updateLoadBtn();
   }
 
   /* ---------- page detection ---------- */
@@ -886,12 +1156,25 @@
 
   /* ---------- init + ASP.NET partial postback / dynamic step support ---------- */
   function init() {
+    initialLangId = currentLangId();
+    shownLangId = initialLangId;
     update(true);
     try {
-      if (W.Sys && W.Sys.WebForms && W.Sys.WebForms.PageRequestManager) {
-        W.Sys.WebForms.PageRequestManager.getInstance().add_endRequest(() => setTimeout(() => update(false), 300));
+      const prm = pageRequestManager();
+      if (prm) {
+        // Before a postback replaces the editor (e.g. the Message language is changed), keep what it held
+        prm.add_beginRequest(() => { try { captureShown(); } catch (e) { /* ignore */ } });
+        prm.add_endRequest(() => {
+          shownLangId = currentLangId() || shownLangId;
+          if (cycling) return; // Load Translations re-renders when it finishes
+          setTimeout(() => { try { captureShown(); } catch (e) { /* ignore */ } update(false); }, 300);
+        });
       }
     } catch (e) { /* not an UpdatePanel page */ }
+
+    if (AUTO_LOAD_TRANSLATIONS && document.getElementById(PANEL_ID) && localisedLangs().some(l => !bodyCache.has(l.id))) {
+      setTimeout(() => loadTranslations({ auto: true }), 500);
+    }
 
     // Catch steps/tabs that load without a full page refresh
     let timer = null;
