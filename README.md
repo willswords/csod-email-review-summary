@@ -194,7 +194,7 @@ The script runs entirely in your browser and doesn't collect or transmit any dat
 
 ## Credits
 
-Localisation support was contributed by a colleague and merged in v1.17.
+Localisation support was contributed by Luke Brown and merged in v1.17.
 
 ---
 
