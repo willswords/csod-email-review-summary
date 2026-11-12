@@ -2,6 +2,7 @@
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
 // @version      1.28
+// @author       Will Findlay
 // @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
 // @match        https://*.csod.com/*Email*.aspx*
@@ -10,6 +11,10 @@
 // @match        https://*.csod.com/*EmailEdit*.aspx*
 // @match        https://*.csod.com/LMS/Admin/NewUI/ManageTrainingEditCombined.aspx*
 // @match        https://*.csod.com/*ManageTraining*.aspx*
+// @homepageURL  https://github.com/willswords/csod-mp4-video-link
+// @updateURL    https://raw.githubusercontent.com/willswords/csod-email-review-summary/main/csod-email-review-summary.user.js
+// @downloadURL  https://raw.githubusercontent.com/willswords/csod-email-review-summary/main/csod-email-review-summary.user.js
+
 // @license      MIT
 // @grant        none
 // @run-at       document-idle
