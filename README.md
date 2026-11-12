@@ -2,7 +2,7 @@
 
 A userscript for **Cornerstone OnDemand (CSOD)** administrators. It reads the email template currently open in Cornerstone and builds an editable, reviewer-ready summary of its settings and Notification Content at the bottom of the page.
 
-**Current version:** 1.29
+**Current version:** 1.30
 
 ## Install
 
@@ -24,7 +24,7 @@ A userscript for **Cornerstone OnDemand (CSOD)** administrators. It reads the em
 - **Apply to Message:** writes the reviewed Notification Content back to the matching language in the Cornerstone editor.
 - **Localized emails:** lists available languages and creates a separate review section for each translated title, subject, and message body.
 - **Load Translations:** cycles through Cornerstone's language selector to load translated content, then returns to the original language. Nothing is saved by loading translations.
-- **Email list setup:** on a training's Emails page, the script unchecks **Include Inactive Emails** and clicks **Expand/Collapse All** each time the page loads, so the summary lists every action's active emails. If the list is already expanded, it is left as is.
+- **Email list setup:** on a training's Emails page, the script unchecks **Include Inactive Emails** and clicks **Expand/Collapse All** when the page loads, so the summary lists every action's active emails. If the list is already expanded, it is left as is. If you then check the box or collapse the list yourself, the reload Cornerstone does for that keeps your choice.
 - **Copy and download:** copies the full rich-text review summary or downloads it for sharing.
 - **Movable panel:** the review panel can be repositioned to make comparison with the Cornerstone form easier.
 - **Resizable original message editor:** drag the resize handle on the original Cornerstone message editor to increase or reduce its width and height. The feature supports Telerik RadEditor, editable iframe/contenteditable editors, and plain textarea variants.
@@ -113,7 +113,7 @@ The following settings are near the top of the script:
 | `BOLD_VALUES` | `['Email Title', 'Subject']` | Controls which setting values are bold in the summary. |
 | `AUTO_LOAD_TRANSLATIONS` | `true` | Automatically loads translated content when translations are detected. |
 | `LOAD_ALL_LANGUAGES` | `true` | Makes the manual Load Translations action visit every available language. |
-| `AUTO_LIST_SETUP` | `true` | On email list pages, unchecks **Include Inactive Emails** and clicks **Expand/Collapse All** each time the page loads. |
+| `AUTO_LIST_SETUP` | `true` | On email list pages, unchecks **Include Inactive Emails** and clicks **Expand/Collapse All** when the page loads (not after you toggle either control yourself). |
 
 ## Important usage notes
 
@@ -134,7 +134,7 @@ The following settings are near the top of the script:
 | The editor size resets | Cornerstone may replace or reset the editor during navigation or a full page reload. Resize it again after the new editor loads. |
 | Apply to Message reports the wrong language | Select the matching language in Cornerstone, then apply that language's Notification Content again. |
 | A translation says its content was not loaded | Click **Load Translations**, wait for completion, and refresh the summary if needed. |
-| Inactive emails are hidden or the list keeps expanding on its own | This is the email list setup feature. Set `AUTO_LIST_SETUP` to `false` to turn it off; rechecking **Include Inactive Emails** by hand only lasts until the next page load. |
+| Inactive emails are hidden or the list expands on its own | This is the email list setup feature, which runs when the page loads. Check **Include Inactive Emails** afterwards to show them; the script leaves that choice alone. Set `AUTO_LIST_SETUP` to `false` to turn the feature off. |
 | The email list is not expanded automatically | Wait a few seconds after the page loads: the script waits for Cornerstone to finish refreshing the list after unchecking Include Inactive Emails. If it still is not expanded, click **Expand/Collapse All** and then **Refresh** in the panel. |
 | Applied content disappears after switching languages | Save the Cornerstone email immediately after applying content and before changing the language selector. |
 
@@ -150,6 +150,7 @@ Localization support, including translated titles, subjects, Notification Conten
 
 | Version | Changes |
 |---|---|
+| **1.30** | The email list setup now runs only when the page is opened or refreshed. Checking **Include Inactive Emails** or clicking **Expand/Collapse All** yourself no longer triggers it again on the reload that follows. |
 | **1.29** | Email list pages now automatically uncheck **Include Inactive Emails** and click **Expand/Collapse All** on load (skipped if the list is already expanded). Set `AUTO_LIST_SETUP` to `false` to turn this off. |
 | **1.28** | Reframed Clean HTML as **Lint HTML**: preserves style-bearing markup and spacing, removes comments, pretty-prints source, and documents advisory warning checks for common HTML/email issues. |
 | **1.27** | Made cleanup conservative so style-bearing tags and attributes are preserved. |

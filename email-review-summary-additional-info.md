@@ -1,6 +1,6 @@
 # CSOD Email Review Summary – Additional Info
 
-**Current version:** 1.29
+**Current version:** 1.30
 
 This page supplements the README with more detail about reviewing, cleaning, and applying Notification Content.
 
@@ -70,7 +70,7 @@ Resizing changes only the editor workspace shown in the browser. It does not add
 
 ## Email list setup
 
-On a training's Emails page (the list of email actions), the script prepares the list each time the page loads so the summary shows every active email:
+On a training's Emails page (the list of email actions), the script prepares the list when the page loads so the summary shows every active email:
 
 1. If **Include Inactive Emails** is checked, the script unchecks it. Cornerstone then refreshes the list.
 2. The script waits for that refresh to finish before doing anything else, so the two refreshes do not interrupt each other. If Cornerstone reloads the whole page instead, the script starts again on the reloaded page.
@@ -81,7 +81,8 @@ Notes:
 
 - Nothing is saved. The checkbox and expand state are display options only.
 - Each action has a detail row that stays empty while collapsed; the script treats the list as expanded only when one of those rows contains emails.
-- To keep inactive emails visible, set `AUTO_LIST_SETUP` to `false` near the top of the script. Rechecking the box by hand only lasts until the next page load, when the script unchecks it again.
+- Your own changes are kept. Checking **Include Inactive Emails** or clicking **Expand/Collapse All** yourself makes Cornerstone reload the page; the script notices that you clicked one of these controls and skips the setup on that reload. The next normal page load (opening the page or refreshing it) runs the setup again.
+- To never run the setup, set `AUTO_LIST_SETUP` to `false` near the top of the script.
 
 ## Safe review workflow
 
@@ -103,6 +104,7 @@ Notes:
 
 ## Version history
 
+- **1.30:** the email list setup runs only when the page is opened or refreshed, not on the reload that follows toggling Include Inactive Emails or Expand/Collapse All yourself.
 - **1.29:** email list pages automatically uncheck Include Inactive Emails and click Expand/Collapse All on load (`AUTO_LIST_SETUP`).
 - **1.28:** renamed Clean HTML to Lint HTML, preserved style-bearing markup and spacing, and documented non-destructive HTML/email warning checks.
 - **1.27:** changed cleaning behavior to preserve tags and attributes that can affect styling.

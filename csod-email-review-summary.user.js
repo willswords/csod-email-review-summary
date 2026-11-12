@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
-// @version      1.29
+// @version      1.30
 // @author       Will Findlay <https://greasyfork.org/en/users/990849>
 // @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
@@ -37,8 +37,9 @@
   // false = only load languages that have a translated title or subject; true = every language in the dropdown.
   const LOAD_ALL_LANGUAGES = true;
 
-  // Email list pages (e.g. a training's Emails step): on each page load, uncheck "Include Inactive Emails"
-  // and click "Expand/Collapse All" so every action's emails are listed.
+  // Email list pages (e.g. a training's Emails step): when the page loads, uncheck "Include Inactive Emails"
+  // and click "Expand/Collapse All" so every action's emails are listed. Not repeated on the reload that
+  // follows the user toggling either control themselves.
   const AUTO_LIST_SETUP = true;
 
   const PANEL_ID = 'er-review-panel';
@@ -1398,9 +1399,30 @@
   window.addEventListener('beforeunload', () => { leaving = true; });
   window.addEventListener('pagehide', () => { leaving = true; });
 
+  // Run the setup only when the page first loads. When the user toggles Include Inactive Emails or
+  // Expand/Collapse All themselves, Cornerstone posts back and reloads the page; remember that so the
+  // reload keeps the user's choice. (The script's own clicks are untrusted events, so they don't count.)
+  const USER_TOGGLE_KEY = 'er-list-user-toggle';
+  const pageKey = () => location.pathname + location.search;
+  const storage = (fn) => { try { return fn(window.sessionStorage); } catch (e) { return null; } };
+  document.addEventListener('click', (ev) => {
+    if (!ev.isTrusted || !ev.target || !ev.target.closest) return;
+    const ctl = ev.target.closest('[id$="_chkIncludeInactive"], label[for$="_chkIncludeInactive"], [id$="_btnExpandCollapseAll"]');
+    if (!ctl || inPanel(ctl)) return;
+    storage(s => s.setItem(USER_TOGGLE_KEY, JSON.stringify({ page: pageKey(), t: Date.now() })));
+  }, true);
+
+  // True (and cleared) if the user toggled a list control just before this page load
+  function consumeUserToggle() {
+    const v = storage(s => { const x = s.getItem(USER_TOGGLE_KEY); s.removeItem(USER_TOGGLE_KEY); return x; });
+    if (!v) return false;
+    try { const o = JSON.parse(v); return o.page === pageKey() && Date.now() - o.t < 120000; } catch (e) { return false; }
+  }
+
   let listSetupRunning = false;
+  let listSetupSkipped = false;
   async function autoListSetup() {
-    if (!AUTO_LIST_SETUP || listSetupRunning || isEmailEditForm()) return;
+    if (!AUTO_LIST_SETUP || listSetupRunning || listSetupSkipped || isEmailEditForm()) return;
     listSetupRunning = true;
     try { await runListSetup(); } finally { listSetupRunning = false; }
   }
@@ -1441,6 +1463,8 @@
         // Before a postback replaces the editor (e.g. the Message language is changed), keep what it held
         prm.add_beginRequest(() => { try { captureShown(); } catch (e) { /* ignore */ } });
         prm.add_endRequest(() => {
+          // A partial postback finished without a page reload, so the next real load is a fresh one
+          storage(s => s.removeItem(USER_TOGGLE_KEY));
           shownLangId = currentLangId() || shownLangId;
           if (cycling) return; // Load Translations re-renders when it finishes
           setTimeout(() => { try { captureShown(); } catch (e) { /* ignore */ } update(false); }, 300);
@@ -1452,6 +1476,8 @@
       setTimeout(() => loadTranslations({ auto: true }), 500);
     }
 
+    // A reload caused by the user toggling the list controls keeps their choice
+    listSetupSkipped = consumeUserToggle();
     autoListSetup().catch(() => { /* leave the page as Cornerstone loaded it */ });
 
     // Catch steps/tabs that load without a full page refresh
