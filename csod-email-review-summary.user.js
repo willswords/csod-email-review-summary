@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
-// @version      1.28
+// @version      1.29
 // @author       Will Findlay <https://greasyfork.org/en/users/990849>
 // @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
@@ -36,6 +36,10 @@
   const AUTO_LOAD_TRANSLATIONS = true;
   // false = only load languages that have a translated title or subject; true = every language in the dropdown.
   const LOAD_ALL_LANGUAGES = true;
+
+  // Email list pages (e.g. a training's Emails step): on each page load, uncheck "Include Inactive Emails"
+  // and click "Expand/Collapse All" so every action's emails are listed.
+  const AUTO_LIST_SETUP = true;
 
   const PANEL_ID = 'er-review-panel';
   const BOX_ID = 'er-review-box';
@@ -1361,6 +1365,71 @@
     else removePanel();
   }
 
+  /* ---------- list page setup: exclude inactive emails, expand all actions ---------- */
+  function includeInactiveBox() {
+    const el = byId('_chkIncludeInactive');
+    if (el && el.type === 'checkbox') return el;
+    for (const cb of document.querySelectorAll('input[type=checkbox]')) {
+      if (!inPanel(cb) && /include\s+inactive\s+e-?mails?/i.test(labelFor(cb).name)) return cb;
+    }
+    return null;
+  }
+
+  function expandAllControl() {
+    const byIdEl = byId('_btnExpandCollapseAll');
+    if (byIdEl && !inPanel(byIdEl) && visible(byIdEl)) return byIdEl;
+    const cands = document.querySelectorAll('a, button, span, div, [role="button"]');
+    for (const el of cands) {
+      if (inPanel(el) || !visible(el)) continue;
+      if (!/^expand\s*\/\s*collapse\s+all$/i.test(clean(el.textContent))) continue;
+      // innermost element carrying the text, then its clickable ancestor
+      if (Array.from(el.children).some(c => /expand\s*\/\s*collapse/i.test(c.textContent))) continue;
+      return el.closest('a, button, [onclick], [role="button"]') || el;
+    }
+    return null;
+  }
+
+  // Each action has a tr.emailExBg detail row; it is empty while collapsed and holds the email list when expanded.
+  const anyExpanded = () => Array.from(document.querySelectorAll('tr.emailExBg'))
+    .some(r => !inPanel(r) && visible(r) && clean(r.textContent));
+  const postbackBusy = () => { const p = pageRequestManager(); return !!(p && p.get_isInAsyncPostBack()); };
+
+  let leaving = false; // a full postback / navigation is under way
+  window.addEventListener('beforeunload', () => { leaving = true; });
+  window.addEventListener('pagehide', () => { leaving = true; });
+
+  let listSetupRunning = false;
+  async function autoListSetup() {
+    if (!AUTO_LIST_SETUP || listSetupRunning || isEmailEditForm()) return;
+    listSetupRunning = true;
+    try { await runListSetup(); } finally { listSetupRunning = false; }
+  }
+
+  async function runListSetup() {
+    // The controls may appear a little after the page (or step) loads
+    if (!await waitUntil(() => includeInactiveBox() || expandAllControl(), 5000)) return;
+
+    const cb = includeInactiveBox();
+    if (cb && cb.checked) {
+      // Cornerstone's onclick posts back (via setTimeout) and re-renders the list. Wait until the checkbox
+      // has been replaced by the re-rendered one, so the Expand/Collapse All postback doesn't cancel it.
+      // If it turns out to be a full page postback the page unloads here and the script runs again afterwards.
+      cb.click();
+      await sleep(300);
+      const replaced = await waitUntil(() => !leaving && !postbackBusy() && includeInactiveBox() !== cb, 20000);
+      if (leaving || !replaced) return;
+      await waitUntil(() => !!expandAllControl(), 5000);
+    }
+
+    if (leaving || anyExpanded()) return; // already expanded – clicking would collapse
+    const ctl = expandAllControl();
+    if (!ctl) return;
+    ctl.click();
+    await sleep(300);
+    await waitUntil(() => !postbackBusy() && anyExpanded(), 10000);
+    update(false); // include the expanded emails in the summary
+  }
+
   /* ---------- init + ASP.NET partial postback / dynamic step support ---------- */
   function init() {
     initialLangId = currentLangId();
@@ -1383,6 +1452,8 @@
       setTimeout(() => loadTranslations({ auto: true }), 500);
     }
 
+    autoListSetup().catch(() => { /* leave the page as Cornerstone loaded it */ });
+
     // Catch steps/tabs that load without a full page refresh
     let timer = null;
     const obs = new MutationObserver(muts => {
@@ -1391,7 +1462,10 @@
       timer = setTimeout(() => {
         const present = !!document.getElementById(PANEL_ID);
         const wanted = isEmailPage() || hasEmailContent();
-        if (wanted && !present) render(true);
+        if (wanted && !present) {
+          render(true);
+          autoListSetup().catch(() => { /* ignore */ }); // e.g. the Emails step opened without a full reload
+        }
         else if (!wanted && present) removePanel();
       }, 600);
     });

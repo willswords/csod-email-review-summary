@@ -1,6 +1,6 @@
 # CSOD Email Review Summary – Additional Info
 
-**Current version:** 1.28
+**Current version:** 1.29
 
 This page supplements the README with more detail about reviewing, cleaning, and applying Notification Content.
 
@@ -88,6 +88,7 @@ Resizing changes only the editor workspace shown in the browser. It does not add
 
 ## Version history
 
+- **1.29:** email list pages automatically uncheck Include Inactive Emails and click Expand/Collapse All on load (`AUTO_LIST_SETUP`).
 - **1.28:** renamed Clean HTML to Lint HTML, preserved style-bearing markup and spacing, and documented non-destructive HTML/email warning checks.
 - **1.27:** changed cleaning behavior to preserve tags and attributes that can affect styling.
 - **1.26:** added the dedicated Cornerstone editor resize handle while preserving editor-mode switching.

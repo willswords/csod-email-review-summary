@@ -2,7 +2,7 @@
 
 A userscript for **Cornerstone OnDemand (CSOD)** administrators. It reads the email template currently open in Cornerstone and builds an editable, reviewer-ready summary of its settings and Notification Content at the bottom of the page.
 
-**Current version:** 1.28
+**Current version:** 1.29
 
 ## Install
 
@@ -112,6 +112,7 @@ The following settings are near the top of the script:
 | `BOLD_VALUES` | `['Email Title', 'Subject']` | Controls which setting values are bold in the summary. |
 | `AUTO_LOAD_TRANSLATIONS` | `true` | Automatically loads translated content when translations are detected. |
 | `LOAD_ALL_LANGUAGES` | `true` | Makes the manual Load Translations action visit every available language. |
+| `AUTO_LIST_SETUP` | `true` | On email list pages, unchecks **Include Inactive Emails** and clicks **Expand/Collapse All** each time the page loads. |
 
 ## Important usage notes
 
@@ -146,6 +147,7 @@ Localization support, including translated titles, subjects, Notification Conten
 
 | Version | Changes |
 |---|---|
+| **1.29** | Email list pages now automatically uncheck **Include Inactive Emails** and click **Expand/Collapse All** on load (skipped if the list is already expanded). Set `AUTO_LIST_SETUP` to `false` to turn this off. |
 | **1.28** | Reframed Clean HTML as **Lint HTML**: preserves style-bearing markup and spacing, removes comments, pretty-prints source, and documents advisory warning checks for common HTML/email issues. |
 | **1.27** | Made cleanup conservative so style-bearing tags and attributes are preserved. |
 | **1.26** | Reworked Cornerstone editor resizing with a dedicated drag handle while preserving WYSIWYG/HTML mode switching. |
