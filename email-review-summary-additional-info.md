@@ -68,6 +68,21 @@ Resizing changes only the editor workspace shown in the browser. It does not add
 - The editor cannot be widened beyond the available page width by this feature.
 - On Telerik RadEditor pages, the script applies resizing to the editor container so the toolbar remains usable.
 
+## Email list setup
+
+On a training's Emails page (the list of email actions), the script prepares the list each time the page loads so the summary shows every active email:
+
+1. If **Include Inactive Emails** is checked, the script unchecks it. Cornerstone then refreshes the list.
+2. The script waits for that refresh to finish before doing anything else, so the two refreshes do not interrupt each other. If Cornerstone reloads the whole page instead, the script starts again on the reloaded page.
+3. If no action is showing its emails yet, the script clicks **Expand/Collapse All**. Because this button toggles, it is not clicked when the list is already expanded.
+4. When the emails appear, the summary is rebuilt to include them.
+
+Notes:
+
+- Nothing is saved. The checkbox and expand state are display options only.
+- Each action has a detail row that stays empty while collapsed; the script treats the list as expanded only when one of those rows contains emails.
+- To keep inactive emails visible, set `AUTO_LIST_SETUP` to `false` near the top of the script. Rechecking the box by hand only lasts until the next page load, when the script unchecks it again.
+
 ## Safe review workflow
 
 1. Click **Clean HTML** on the relevant Notification Content section.
