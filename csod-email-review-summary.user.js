@@ -2,7 +2,7 @@
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
 // @version      1.28
-// @author       Will Findlay
+// @author       Will Findlay <https://greasyfork.org/en/users/990849>
 // @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
 // @match        https://*.csod.com/*Email*.aspx*

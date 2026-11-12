@@ -4,6 +4,12 @@ A userscript for **Cornerstone OnDemand (CSOD)** administrators. It reads the em
 
 **Current version:** 1.28
 
+## Install
+
+1. Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
+2. Open [csod-mp4-video-link.user.js](https://raw.githubusercontent.com/willswords/csod-email-review-summary/main/csod-email-review-summary.user.js)
+   and click Install.
+
 ## Features
 
 - **Email settings summary:** captures Email Title, Subject, Send To, CC, Availability Criteria, Default Language, and email Type. Email Title and Subject values are bold.
