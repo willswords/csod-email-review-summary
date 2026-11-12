@@ -14,7 +14,7 @@
 // @homepageURL  https://github.com/willswords/csod-mp4-video-link
 // @updateURL    https://raw.githubusercontent.com/willswords/csod-email-review-summary/main/csod-email-review-summary.user.js
 // @downloadURL  https://raw.githubusercontent.com/willswords/csod-email-review-summary/main/csod-email-review-summary.user.js
-
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=csod.com
 // @license      MIT
 // @grant        none
 // @run-at       document-idle
