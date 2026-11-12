@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CSOD Email Review Summary
 // @namespace    burnsmcd.csod.tools
-// @version      1.30
+// @version      1.31
 // @author       Will Findlay <https://greasyfork.org/en/users/990849>
 // @description  Summarizes the email settings and content on Cornerstone email pages into an editable rich text box at the bottom of the page, ready to copy/send for review. Includes localised (translated) title, subject and content when present.
 // @match        https://*.csod.com/*Emails.aspx*
@@ -37,9 +37,8 @@
   // false = only load languages that have a translated title or subject; true = every language in the dropdown.
   const LOAD_ALL_LANGUAGES = true;
 
-  // Email list pages (e.g. a training's Emails step): when the page loads, uncheck "Include Inactive Emails"
-  // and click "Expand/Collapse All" so every action's emails are listed. Not repeated on the reload that
-  // follows the user toggling either control themselves.
+  // Email list pages (e.g. a training's Emails step): when the page loads, uncheck "Include Inactive Emails".
+  // Not repeated on the reload that follows the user toggling the checkbox themselves.
   const AUTO_LIST_SETUP = true;
 
   const PANEL_ID = 'er-review-panel';
@@ -1366,7 +1365,7 @@
     else removePanel();
   }
 
-  /* ---------- list page setup: exclude inactive emails, expand all actions ---------- */
+  /* ---------- list page setup: exclude inactive emails ---------- */
   function includeInactiveBox() {
     const el = byId('_chkIncludeInactive');
     if (el && el.type === 'checkbox') return el;
@@ -1376,43 +1375,20 @@
     return null;
   }
 
-  function expandAllControl() {
-    const byIdEl = byId('_btnExpandCollapseAll');
-    if (byIdEl && !inPanel(byIdEl) && visible(byIdEl)) return byIdEl;
-    const cands = document.querySelectorAll('a, button, span, div, [role="button"]');
-    for (const el of cands) {
-      if (inPanel(el) || !visible(el)) continue;
-      if (!/^expand\s*\/\s*collapse\s+all$/i.test(clean(el.textContent))) continue;
-      // innermost element carrying the text, then its clickable ancestor
-      if (Array.from(el.children).some(c => /expand\s*\/\s*collapse/i.test(c.textContent))) continue;
-      return el.closest('a, button, [onclick], [role="button"]') || el;
-    }
-    return null;
-  }
-
-  // Each action has a tr.emailExBg detail row; it is empty while collapsed and holds the email list when expanded.
-  const anyExpanded = () => Array.from(document.querySelectorAll('tr.emailExBg'))
-    .some(r => !inPanel(r) && visible(r) && clean(r.textContent));
-  const postbackBusy = () => { const p = pageRequestManager(); return !!(p && p.get_isInAsyncPostBack()); };
-
-  let leaving = false; // a full postback / navigation is under way
-  window.addEventListener('beforeunload', () => { leaving = true; });
-  window.addEventListener('pagehide', () => { leaving = true; });
-
-  // Run the setup only when the page first loads. When the user toggles Include Inactive Emails or
-  // Expand/Collapse All themselves, Cornerstone posts back and reloads the page; remember that so the
-  // reload keeps the user's choice. (The script's own clicks are untrusted events, so they don't count.)
+  // Run the setup only when the page first loads. When the user toggles Include Inactive Emails themselves,
+  // Cornerstone posts back and reloads the page; remember that so the reload keeps the user's choice.
+  // (The script's own click is an untrusted event, so it doesn't count.)
   const USER_TOGGLE_KEY = 'er-list-user-toggle';
   const pageKey = () => location.pathname + location.search;
   const storage = (fn) => { try { return fn(window.sessionStorage); } catch (e) { return null; } };
   document.addEventListener('click', (ev) => {
     if (!ev.isTrusted || !ev.target || !ev.target.closest) return;
-    const ctl = ev.target.closest('[id$="_chkIncludeInactive"], label[for$="_chkIncludeInactive"], [id$="_btnExpandCollapseAll"]');
+    const ctl = ev.target.closest('[id$="_chkIncludeInactive"], label[for$="_chkIncludeInactive"]');
     if (!ctl || inPanel(ctl)) return;
     storage(s => s.setItem(USER_TOGGLE_KEY, JSON.stringify({ page: pageKey(), t: Date.now() })));
   }, true);
 
-  // True (and cleared) if the user toggled a list control just before this page load
+  // True (and cleared) if the user toggled Include Inactive Emails just before this page load
   function consumeUserToggle() {
     const v = storage(s => { const x = s.getItem(USER_TOGGLE_KEY); s.removeItem(USER_TOGGLE_KEY); return x; });
     if (!v) return false;
@@ -1428,28 +1404,12 @@
   }
 
   async function runListSetup() {
-    // The controls may appear a little after the page (or step) loads
-    if (!await waitUntil(() => includeInactiveBox() || expandAllControl(), 5000)) return;
-
+    // The checkbox may appear a little after the page (or step) loads
+    if (!await waitUntil(() => !!includeInactiveBox(), 5000)) return;
     const cb = includeInactiveBox();
-    if (cb && cb.checked) {
-      // Cornerstone's onclick posts back (via setTimeout) and re-renders the list. Wait until the checkbox
-      // has been replaced by the re-rendered one, so the Expand/Collapse All postback doesn't cancel it.
-      // If it turns out to be a full page postback the page unloads here and the script runs again afterwards.
-      cb.click();
-      await sleep(300);
-      const replaced = await waitUntil(() => !leaving && !postbackBusy() && includeInactiveBox() !== cb, 20000);
-      if (leaving || !replaced) return;
-      await waitUntil(() => !!expandAllControl(), 5000);
-    }
-
-    if (leaving || anyExpanded()) return; // already expanded – clicking would collapse
-    const ctl = expandAllControl();
-    if (!ctl) return;
-    ctl.click();
-    await sleep(300);
-    await waitUntil(() => !postbackBusy() && anyExpanded(), 10000);
-    update(false); // include the expanded emails in the summary
+    // Clicking fires Cornerstone's own handler, which posts back and refreshes the list
+    // (the summary is rebuilt when that finishes).
+    if (cb.checked) cb.click();
   }
 
   /* ---------- init + ASP.NET partial postback / dynamic step support ---------- */

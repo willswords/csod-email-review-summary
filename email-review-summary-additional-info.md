@@ -1,6 +1,6 @@
 # CSOD Email Review Summary – Additional Info
 
-**Current version:** 1.30
+**Current version:** 1.31
 
 This page supplements the README with more detail about reviewing, cleaning, and applying Notification Content.
 
@@ -70,18 +70,13 @@ Resizing changes only the editor workspace shown in the browser. It does not add
 
 ## Email list setup
 
-On a training's Emails page (the list of email actions), the script prepares the list when the page loads so the summary shows every active email:
-
-1. If **Include Inactive Emails** is checked, the script unchecks it. Cornerstone then refreshes the list.
-2. The script waits for that refresh to finish before doing anything else, so the two refreshes do not interrupt each other. If Cornerstone reloads the whole page instead, the script starts again on the reloaded page.
-3. If no action is showing its emails yet, the script clicks **Expand/Collapse All**. Because this button toggles, it is not clicked when the list is already expanded.
-4. When the emails appear, the summary is rebuilt to include them.
+On a training's Emails page (the list of email actions), the script unchecks **Include Inactive Emails** when the page loads, so the list and the summary show active emails only. Cornerstone refreshes the list after the box is unchecked, and the summary is rebuilt to match.
 
 Notes:
 
-- Nothing is saved. The checkbox and expand state are display options only.
-- Each action has a detail row that stays empty while collapsed; the script treats the list as expanded only when one of those rows contains emails.
-- Your own changes are kept. Checking **Include Inactive Emails** or clicking **Expand/Collapse All** yourself makes Cornerstone reload the page; the script notices that you clicked one of these controls and skips the setup on that reload. The next normal page load (opening the page or refreshing it) runs the setup again.
+- Nothing is saved. The checkbox is a display option only.
+- The script does not expand the list. Click **Expand/Collapse All** yourself if you want each action's emails listed, then click **Refresh** in the panel to include them in the summary.
+- Your own choice is kept. Checking **Include Inactive Emails** yourself makes Cornerstone reload the page; the script notices that you clicked the checkbox and leaves it checked on that reload. The next normal page load (opening the page or refreshing it) unchecks it again.
 - To never run the setup, set `AUTO_LIST_SETUP` to `false` near the top of the script.
 
 ## Safe review workflow
@@ -104,6 +99,7 @@ Notes:
 
 ## Version history
 
+- **1.31:** removed the automatic Expand/Collapse All click; the email list setup now only unchecks Include Inactive Emails.
 - **1.30:** the email list setup runs only when the page is opened or refreshed, not on the reload that follows toggling Include Inactive Emails or Expand/Collapse All yourself.
 - **1.29:** email list pages automatically uncheck Include Inactive Emails and click Expand/Collapse All on load (`AUTO_LIST_SETUP`).
 - **1.28:** renamed Clean HTML to Lint HTML, preserved style-bearing markup and spacing, and documented non-destructive HTML/email warning checks.
